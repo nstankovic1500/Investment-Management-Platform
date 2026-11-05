@@ -1,0 +1,81 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: authentication
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  mongodb:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7
+
+  ganache:
+    image: trufflesuite/ganache-cli
+    command: --wallet.deterministic --host 0.0.0.0
+    ports:
+      - "8545:8545"
+
+  authentication:
+    build:
+      context: .
+      dockerfile: authentication/Dockerfile
+    environment:
+      DATABASE_URL: mysql+pymysql://user:password@mysql:3306/authentication
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret}
+      PORT: 5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mysql
+
+  employee:
+    build:
+      context: .
+      dockerfile: employee/Dockerfile
+    environment:
+      MONGO_URL: mongodb://mongodb:27017
+      MONGO_DB: investment_management
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret}
+      PORT: 5001
+    ports:
+      - "5001:5001"
+    depends_on:
+      - mongodb
+      - redis
+      - authentication
+
+  director:
+    build:
+      context: .
+      dockerfile: director/Dockerfile
+    environment:
+      MONGO_URL: mongodb://mongodb:27017
+      MONGO_DB: investment_management
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret}
+      WEB3_PROVIDER_URL: http://ganache:8545
+      CONTRACT_OWNER_ACCOUNT: ${CONTRACT_OWNER_ACCOUNT}
+      CONTRACT_OWNER_PRIVATE_KEY: ${CONTRACT_OWNER_PRIVATE_KEY}
+      PORT: 5002
+    ports:
+      - "5002:5002"
+    depends_on:
+      - mongodb
+      - redis
+      - authentication
+      - ganache
+
+volumes:
+  mysql_data:
+  mongo_data:

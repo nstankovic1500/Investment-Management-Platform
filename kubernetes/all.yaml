@@ -1,0 +1,385 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: investment-config
+data:
+  MONGO_DB: investment_management
+  MONGO_HOST: mongodb
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  MYSQL_HOST: mysql
+  MYSQL_PORT: "3306"
+  AUTHENTICATION_PORT: "5000"
+  EMPLOYEE_PORT: "5001"
+  DIRECTOR_PORT: "5002"
+  WEB3_PROVIDER_URL: http://ganache:8545
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: investment-secrets
+type: Opaque
+data:
+  MYSQL_ROOT_PASSWORD: cm9vdHBhc3N3b3Jk
+  MYSQL_PASSWORD: cGFzc3dvcmQ=
+  JWT_SECRET_KEY: Y2hhbmdlLXRoaXMtc2VjcmV0
+  DATABASE_URL: bXlzcWwrcHlteXNxbDovL3VzZXI6cGFzc3dvcmRAbXlzcWw6MzMwNi9hdXRoZW50aWNhdGlvbg==
+  CONTRACT_OWNER_ACCOUNT: eW91ci1nYW5hY2hlLWFjY291bnQ=
+  CONTRACT_OWNER_PRIVATE_KEY: eW91ci1nYW5hY2hlLXByaXZhdGUta2V5
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          env:
+            - name: MYSQL_DATABASE
+              value: authentication
+            - name: MYSQL_USER
+              value: user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: MYSQL_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: MYSQL_ROOT_PASSWORD
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: mysql-storage
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: mongodb-storage
+              mountPath: /data/db
+      volumes:
+        - name: mongodb-storage
+          persistentVolumeClaim:
+            claimName: mongodb-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ganache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ganache
+  template:
+    metadata:
+      labels:
+        app: ganache
+    spec:
+      containers:
+        - name: ganache
+          image: trufflesuite/ganache-cli
+          args: ["--wallet.deterministic", "--host", "0.0.0.0"]
+          ports:
+            - containerPort: 8545
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ganache
+spec:
+  selector:
+    app: ganache
+  ports:
+    - port: 8545
+      targetPort: 8545
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentication
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: authentication
+  template:
+    metadata:
+      labels:
+        app: authentication
+    spec:
+      containers:
+        - name: authentication
+          image: investment-authentication:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: JWT_SECRET_KEY
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: AUTHENTICATION_PORT
+          ports:
+            - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentication
+spec:
+  type: NodePort
+  selector:
+    app: authentication
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: employee
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: employee
+  template:
+    metadata:
+      labels:
+        app: employee
+    spec:
+      containers:
+        - name: employee
+          image: investment-employee:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MONGO_URL
+              value: mongodb://mongodb:27017
+            - name: MONGO_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: MONGO_DB
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: REDIS_PORT
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: JWT_SECRET_KEY
+            - name: PORT
+              value: "5001"
+          ports:
+            - containerPort: 5001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: employee
+spec:
+  type: NodePort
+  selector:
+    app: employee
+  ports:
+    - port: 5001
+      targetPort: 5001
+      nodePort: 30001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: director
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: director
+  template:
+    metadata:
+      labels:
+        app: director
+    spec:
+      containers:
+        - name: director
+          image: investment-director:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MONGO_URL
+              value: mongodb://mongodb:27017
+            - name: MONGO_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: MONGO_DB
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: REDIS_PORT
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: JWT_SECRET_KEY
+            - name: WEB3_PROVIDER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: investment-config
+                  key: WEB3_PROVIDER_URL
+            - name: CONTRACT_OWNER_ACCOUNT
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: CONTRACT_OWNER_ACCOUNT
+            - name: CONTRACT_OWNER_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: investment-secrets
+                  key: CONTRACT_OWNER_PRIVATE_KEY
+            - name: PORT
+              value: "5002"
+          ports:
+            - containerPort: 5002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: director
+spec:
+  type: NodePort
+  selector:
+    app: director
+  ports:
+    - port: 5002
+      targetPort: 5002
+      nodePort: 30002

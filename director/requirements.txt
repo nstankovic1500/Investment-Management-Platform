@@ -1,0 +1,6 @@
+Flask
+Flask-JWT-Extended
+PyMongo
+redis
+web3==6.20.4
+py-solc-x
